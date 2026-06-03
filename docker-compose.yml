@@ -1,0 +1,89 @@
+# Local stack that mirrors the prod topology: the API container + Postgres/pgvector.
+# Only the API is published on the host; the DB is private, reachable by the API over
+# the internal network as "db" (in prod the database is never publicly exposed).
+#
+#   docker compose up -d --build           # build + start (schema auto-applies on first boot)
+#   curl localhost:8080/healthz            # -> {"status":"ok"}
+#
+#   # Populate the catalog (pick one):
+#   docker compose run --rm api python -m cueva.cli backfill --mode live --limit 200
+#   docker compose run --rm -v "${PWD}/seed_films.py:/app/seed_films.py:ro" api python seed_films.py
+#
+#   # Run the scheduled refresh job once (the Tue/Thu job — see the "update" service):
+#   docker compose run --rm update
+#
+#   docker compose logs -f api             # tail
+#   docker compose down                    # stop (add -v to also wipe the DB volume)
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: cueva
+      POSTGRES_PASSWORD: cueva
+      POSTGRES_DB: cueva
+    volumes:
+      - cueva_pgdata_compose:/var/lib/postgresql/data
+      # Auto-applied once, only on an empty data volume (creates extensions, tables, index).
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cueva -d cueva"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No host port published — the DB is private, mirroring prod.
+    # Uncomment only if you want to inspect it locally with psql:
+    # ports: ["5433:5432"]
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env            # TMDB_API_TOKEN, ANTHROPIC_API_KEY, model/region, etc.
+    environment:
+      # Reach the db service over the compose network (overrides DATABASE_URL from .env).
+      DATABASE_URL: postgresql://cueva:cueva@db:5432/cueva
+      AUTH_DEV_MODE: "true"            # local only; prod sets this false + real Auth0
+      # Allow the web service's browser origin (the browser calls the API cross-origin).
+      API_CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      args:
+        # Baked into the bundle at build time. The browser (not the container) calls the
+        # API, so this is the host-published API URL, not the internal "api" hostname.
+        VITE_API_URL: http://localhost:8080
+        VITE_USE_MOCK: "false"
+        # For real auth, also pass VITE_AUTH0_DOMAIN / _CLIENT_ID / _AUDIENCE here.
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+  # The scheduled catalog refresh (the Tue/Thu 3am job from DEPLOY.md), as a one-shot.
+  # Behind the "jobs" profile so `docker compose up` never starts it; run it on demand:
+  #   docker compose run --rm update                       # default --limit 150
+  #   docker compose run --rm update python -m cueva.cli update --limit 300
+  # In prod this same image+command is what your cloud scheduler (Cloud Run Job / cron)
+  # fires on the schedule — here you can run it by hand to populate / refresh locally.
+  update:
+    build: .
+    image: cueva-bundle-api          # reuse the api image (no second build)
+    profiles: ["jobs"]               # excluded from `up`; started only when run explicitly
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env                   # TMDB_API_TOKEN, ANTHROPIC_API_KEY
+    environment:
+      DATABASE_URL: postgresql://cueva:cueva@db:5432/cueva
+    command: ["python", "-m", "cueva.cli", "update", "--limit", "150"]
+    restart: "no"
+
+volumes:
+  cueva_pgdata_compose:

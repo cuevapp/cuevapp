@@ -1,0 +1,43 @@
+# Render Blueprint for the Cueva backend (api.cuevapp.com) + the catalog refresh job.
+# Database is external (Neon — free Postgres with pgvector); DATABASE_URL is set as a
+# secret env var below. Deploy: push this repo to GitHub, then in Render "New > Blueprint".
+#
+# Secrets (sync:false) are entered once in the Render dashboard, never committed.
+
+services:
+  # ---- API ----
+  - type: web
+    name: cueva-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /healthz
+    # Add api.cuevapp.com as a custom domain in the dashboard after first deploy.
+    envVars:
+      - key: AUTH_DEV_MODE
+        value: "false"                 # prod: no dev: token backdoor
+      - key: API_CORS_ORIGINS
+        value: https://cuevapp.com,https://www.cuevapp.com
+      - key: AUTH_AUDIENCE
+        value: https://api.cuevapp.com
+      - key: CUEVA_REGION
+        value: US
+      - key: AUTH_ISSUER
+        sync: false                    # https://YOUR_TENANT.us.auth0.com/
+      - key: DATABASE_URL
+        sync: false                    # Neon pooled connection string
+      - key: TMDB_API_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CRON_TRIGGER_TOKEN
+        sync: false                    # shared secret the cron-job.org trigger sends; enables /internal/refresh-catalog
+      # - key: RATE_LIMIT_STORAGE_URI   # set to a Render Key Value (Redis) URL if you scale past 1 instance
+      #   sync: false
+
+  # ---- Scheduled catalog refresh ----
+  # Scheduling is handled by cron-job.org (timezone-aware: Tue & Thu 3am America/Los_Angeles,
+  # DST-safe), which POSTs to POST /internal/refresh-catalog on the API above. See GOLIVE.md
+  # and scripts/create_cronjob.sh. (No Render cron here, to avoid double-runs.)

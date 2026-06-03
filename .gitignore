@@ -1,0 +1,38 @@
+# ---- Secrets / local env ----
+# Ignore real env files (they hold live keys) but KEEP the *.example templates.
+.env
+.env.*
+!.env.example
+!.env.production.example
+# Web env: ignore local dev env, keep the committed templates.
+web/.env
+web/.env.*
+!web/.env.example
+!web/.env.production
+
+# ---- Python ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ---- Node / web build ----
+node_modules/
+web/dist/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# ---- Backups (kept outside the repo, but never commit them) ----
+cueva-bundle-backup-*.zip
+
+# ---- OS / editor cruft ----
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+.claude/settings.local.json

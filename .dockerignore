@@ -1,0 +1,27 @@
+# Keep the build context tiny + the image focused on the backend.
+.venv
+**/__pycache__
+*.pyc
+
+# Frontend / non-API assets (not needed in the API image)
+web
+prototypes
+clients
+node_modules
+**/node_modules
+
+# Local dev + secrets + docs
+.env
+.env.*
+.git
+.gitignore
+.claude
+*.md
+
+# Dev-only scripts (the image runs cueva.cli, not these)
+seed_films.py
+backfill_posters.py
+
+# Docker meta
+Dockerfile
+.dockerignore
