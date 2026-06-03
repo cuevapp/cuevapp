@@ -10,6 +10,9 @@ const config: CapacitorConfig = {
     contentInset: 'always',
   },
   plugins: {
+    // Route fetch/XHR through the native HTTP stack so API calls to api.cuevapp.com
+    // aren't subject to the webview's CORS (native requests have no browser origin).
+    CapacitorHttp: { enabled: true },
     SplashScreen: {
       backgroundColor: '#0c0a09',
       showSpinner: false,

@@ -11,6 +11,9 @@ is what the App Store expects.
 - App icons + splash screens generated for all densities (`web/assets/icon.png`,
   `splash.png` are the sources; regenerate with `npx @capacitor/assets generate`).
 - Capacitor deps in `web/package.json`.
+- **Native Auth0 login** — `CapacitorAuthShell` (system-browser + custom-scheme callback),
+  `CapacitorHttp` enabled for CORS-free API calls, and the Android deep-link intent-filter. ✅
+  (One Auth0-dashboard URL + the iOS Info.plist scheme remain — see below.)
 - **Account deletion** — `DELETE /me` + a Profile "Delete account" button (App Store requirement). ✅
 
 ## Dev workflow (every time you change the web app)
@@ -50,30 +53,36 @@ npx cap open android   # open Android Studio   (or: npx cap open ios  on a Mac)
 
 ---
 
-## ⚠️ The one real code change before login works in-app: native Auth0
-The current build does Auth0 the *web* way (redirect to `https://cuevapp.com`). In a native
-app the redirect must come back to the app via a custom scheme / app link. To wire it:
+## Native Auth0 login — wired in code ✅ (one dashboard step + iOS plist left)
+The native shell (`CapacitorAuthShell` in `web/src/App.jsx`, active only when
+`Capacitor.isNativePlatform()`) drives `@auth0/auth0-spa-js` + `@capacitor/browser` +
+`@capacitor/app`: login opens the **system browser** and the redirect returns via the app's
+**custom URL scheme**, caught by `appUrlOpen`. The web build is untouched (still
+`@auth0/auth0-react`). Two things remain to make it work on a device:
 
-1. **Auth0 dashboard → your SPA app → Settings**, add to the allow-lists:
-   - Callback URLs: `com.cuevapp.app://dev-j1n3u5tpkiesxqx2.us.auth0.com/capacitor/com.cuevapp.app/callback`
-   - Logout URLs: same pattern.
-   (Auth0's "Native" / Ionic guide has the exact strings for your tenant.)
-2. In the app, use Auth0 with Capacitor's **Browser** plugin (`@capacitor/browser`) and the
-   `@auth0/auth0-spa-js` low-level client (or the Ionic Auth Connect SDK) so the login opens
-   the system browser and returns via the custom scheme. The web `@auth0/auth0-react`
-   provider stays for the web build; the native build swaps in the Capacitor flow.
-3. Register the URL scheme: `com.cuevapp.app` in `Info.plist` (iOS) and an intent-filter
-   in `AndroidManifest.xml` (Capacitor's Auth0 guide generates these).
+1. **Auth0 dashboard → Applications → [Cueva Web] → Settings** — add this **exact** URL to BOTH
+   **Allowed Callback URLs** and **Allowed Logout URLs** (alongside your existing
+   `https://cuevapp.com`, comma-separated):
+   ```
+   com.cuevapp.app://dev-j1n3u5tpkiesxqx2.us.auth0.com/capacitor/com.cuevapp.app/callback
+   ```
+2. **iOS only** (on the Mac, after `npx cap add ios`) — register the scheme in
+   `ios/App/App/Info.plist` (Android's intent-filter is already in `AndroidManifest.xml`):
+   ```xml
+   <key>CFBundleURLTypes</key>
+   <array><dict>
+     <key>CFBundleURLSchemes</key>
+     <array><string>com.cuevapp.app</string></array>
+   </dict></array>
+   ```
 
-Until this is done, the native app loads and shows the catalog, but the Auth0 login button
-won't complete the round-trip. This is the main remaining engineering task.
+Once the callback URL is saved in Auth0, login completes in-app.
 
-## CORS for the native origin
-Capacitor apps make requests from `capacitor://localhost` (iOS) / `https://localhost`
-(Android), not `https://cuevapp.com`. Two options:
-- Add those origins to the backend `API_CORS_ORIGINS`, **or**
-- Use the native HTTP layer (`CapacitorHttp`, enabled in `capacitor.config.ts`) so requests
-  are made natively and bypass browser CORS entirely (recommended for mobile).
+## CORS for the native origin — handled ✅
+Capacitor apps would otherwise call the API from `capacitor://localhost` / `https://localhost`
+(not `https://cuevapp.com`) and hit CORS. We enabled **`CapacitorHttp`** in
+`capacitor.config.ts`, so `fetch`/XHR go through the native HTTP stack and bypass browser CORS
+entirely — no backend `API_CORS_ORIGINS` change needed.
 
 ---
 

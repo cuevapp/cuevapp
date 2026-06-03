@@ -6,6 +6,10 @@ import {
   Mail, Lock, AlertCircle, LogOut, ShieldCheck, Cloud, Coffee, Info, ExternalLink,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { Capacitor } from "@capacitor/core";
+import { Browser } from "@capacitor/browser";
+import { App as CapApp } from "@capacitor/app";
+import { createAuth0Client } from "@auth0/auth0-spa-js";
 
 /* =======================================================================
  *  Cueva — connected app. The UI calls CuevaClient; CuevaClient makes real
@@ -24,6 +28,8 @@ export const AUTH0 = {
   audience: import.meta.env.VITE_AUTH0_AUDIENCE,
 };
 export const USING_AUTH0 = Boolean(AUTH0.domain && AUTH0.clientId);
+// True only inside the native iOS/Android shell. The web build is always false.
+export const IS_NATIVE = Capacitor.isNativePlatform();
 
 // --- About / developer info (edit these; donate link can also come from VITE_DONATE_URL) ---
 const ABOUT = {
@@ -839,7 +845,82 @@ function DevAuthShell() {
   return <AppCore client={client} auth={auth} />;
 }
 
+/* ---- Shell D: native (Capacitor) Auth0 — system-browser login + custom-scheme callback ----
+ * Active ONLY inside the iOS/Android app (Capacitor.isNativePlatform()). The web build never
+ * renders this; it keeps using Auth0AuthShell. Auth0's @auth0/auth0-react redirect flow can't
+ * complete in a native shell, so here we drive @auth0/auth0-spa-js: login opens the system
+ * browser (@capacitor/browser) and the redirect comes back via the app's custom URL scheme,
+ * caught by @capacitor/app's appUrlOpen.
+ *
+ * REQUIRED SETUP (see MOBILE.md): add this redirect URI to the Auth0 app's Allowed Callback
+ * URLs AND Allowed Logout URLs, and register the `com.cuevapp.app` scheme in the native
+ * projects (AndroidManifest intent-filter is added; iOS needs an Info.plist URL type). */
+const NATIVE_APP_ID = "com.cuevapp.app";
+const NATIVE_REDIRECT = `${NATIVE_APP_ID}://${AUTH0.domain}/capacitor/${NATIVE_APP_ID}/callback`;
+
+function CapacitorAuthShell() {
+  const [ready, setReady] = useState(false);
+  const [isAuth, setIsAuth] = useState(false);
+  const [email, setEmail] = useState(null);
+  const a0Ref = useRef(null);
+
+  const login = async () => {
+    await a0Ref.current?.loginWithRedirect({
+      authorizationParams: { redirect_uri: NATIVE_REDIRECT },
+      openUrl: (url) => Browser.open({ url, windowName: "_self" }),
+    });
+  };
+  const logout = async () => {
+    await a0Ref.current?.logout({
+      logoutParams: { returnTo: NATIVE_REDIRECT },
+      openUrl: (url) => Browser.open({ url, windowName: "_self" }),
+    });
+    setIsAuth(false); setEmail(null);
+  };
+
+  useEffect(() => {
+    let sub;
+    (async () => {
+      const a0 = await createAuth0Client({
+        domain: AUTH0.domain,
+        clientId: AUTH0.clientId,
+        useRefreshTokens: true,
+        cacheLocation: "localstorage",            // survive app restarts
+        authorizationParams: { audience: AUTH0.audience, redirect_uri: NATIVE_REDIRECT },
+      });
+      a0Ref.current = a0;
+      const sync = async () => {
+        const authed = await a0.isAuthenticated();
+        setIsAuth(authed);
+        setEmail(authed ? (await a0.getUser())?.email ?? null : null);
+      };
+      // The Auth0 redirect returns via the custom scheme; finish the login here.
+      sub = await CapApp.addListener("appUrlOpen", async ({ url }) => {
+        if (url && url.startsWith(NATIVE_APP_ID + "://") && url.includes("state=") && (url.includes("code=") || url.includes("error="))) {
+          try { await a0.handleRedirectCallback(url); } catch (e) { /* ignore; user can retry */ }
+          await Browser.close().catch(() => {});
+          await sync();
+        }
+      });
+      await sync();
+      setReady(true);
+    })();
+    return () => { sub?.remove?.(); };
+  }, []);
+
+  const client = useMemo(() => new CuevaClient(API_URL, {
+    getToken: async () => { try { return await a0Ref.current?.getTokenSilently(); } catch { return null; } },
+    refreshToken: async () => { try { return await a0Ref.current?.getTokenSilently({ cacheMode: "off" }); } catch { return null; } },
+    onSessionExpired: () => login(),
+    refreshSkewSeconds: 30,
+  }), []);
+
+  const auth = { kind: "auth0", ready, isAuthenticated: isAuth, email, notice: null, login, logout, sessionDemo: null };
+  return <AppCore client={client} auth={auth} />;
+}
+
 export default function App() {
-  if (USING_AUTH0) return <Auth0AuthShell />;
-  return USE_MOCK ? <MockAuthShell /> : <DevAuthShell />;
+  if (IS_NATIVE) return <CapacitorAuthShell />;          // iOS/Android app
+  if (USING_AUTH0) return <Auth0AuthShell />;             // web, real auth
+  return USE_MOCK ? <MockAuthShell /> : <DevAuthShell />; // web, mock / dev
 }
