@@ -87,6 +87,14 @@ def update_fingerprint(c, auth_subject: str, fp: Fingerprint):
         return cur.fetchone()
 
 
+def delete_user(c, auth_subject: str) -> int:
+    """Delete a user's account. ON DELETE CASCADE removes their feedback_events and
+    recommendation_events too. Returns rows deleted (0 if no profile existed)."""
+    with c.cursor() as cur:
+        cur.execute("DELETE FROM users WHERE auth_subject = %s", (auth_subject,))
+        return cur.rowcount
+
+
 VALID_SIGNALS = ("love", "dislike", "seen", "hide")
 
 

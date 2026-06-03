@@ -98,6 +98,7 @@ class CuevaClient {
       if (res.status === 401) this.onSessionExpired?.();
     }
     if (!res.ok) { const d = await res.json().catch(() => ({})); throw this._err(res.status, d.detail ?? res.statusText); }
+    if (res.status === 204) return null;            // no-content (e.g. account deletion)
     return res.json();
   }
   onboardingCatalog(limit = 28) { return this._req(`/catalog/onboarding?limit=${limit}`, {}, false); }
@@ -113,6 +114,7 @@ class CuevaClient {
   }
   recommend(body) { return this._req(`/recommend`, { method: "POST", body: JSON.stringify(body) }); }
   sendFeedback(tmdb_id, signal) { return this._req(`/me/feedback`, { method: "POST", body: JSON.stringify({ tmdb_id, signal }) }); }
+  deleteAccount() { return this._req(`/me`, { method: "DELETE" }); }
 }
 
 /* =======================================================================
@@ -582,6 +584,13 @@ function SessionCard({ token, refreshToken, now, event, onApiCall, onExpireAcces
 function ProfileTab({ client, profile, onProfileChange, email, onLogout, session, now, sessionEvent, onApiCall, onExpireAccess, onExpireSession }) {
   const [base, setBase] = useState(profile.base_fingerprint);
   const saveTimer = useRef(null);
+  const [deleting, setDeleting] = useState(false);
+  const deleteAccount = async () => {
+    if (!window.confirm("Permanently delete your Cueva account and all your data (taste profile + feedback)? This can't be undone.")) return;
+    setDeleting(true);
+    try { await client.deleteAccount(); onLogout(); }
+    catch (e) { setDeleting(false); window.alert("Couldn't delete account: " + e.message); }
+  };
   useEffect(() => { setBase(profile.base_fingerprint); }, [profile.base_fingerprint]);
   const hasFb = AXES.some((a) => profile.fingerprint[a] !== profile.base_fingerprint[a]);
   const setAxis = (a, v) => {
@@ -653,8 +662,9 @@ function ProfileTab({ client, profile, onProfileChange, email, onLogout, session
       </div>
 
       {session && <SessionCard token={session.accessToken} refreshToken={session.refreshToken} now={now} event={sessionEvent} onApiCall={onApiCall} onExpireAccess={onExpireAccess} onExpireSession={onExpireSession} />}
-      <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
+      <div style={{ display: "flex", gap: 10, marginTop: 22, flexWrap: "wrap" }}>
         <button onClick={onLogout} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: C.muted, background: "transparent", border: `1px solid ${C.line}`, borderRadius: 999, padding: "9px 16px", cursor: "pointer" }}><LogOut size={14} /> Log out</button>
+        <button onClick={deleteAccount} disabled={deleting} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "#e8888a", background: "transparent", border: "1px solid rgba(232,136,138,.35)", borderRadius: 999, padding: "9px 16px", cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.5 : 1 }}>{deleting ? "Deleting…" : "Delete account"}</button>
       </div>
       <p style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.5, marginTop: 20 }}>Movie data and posters provided by TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
     </div>

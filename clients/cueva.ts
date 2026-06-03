@@ -154,6 +154,7 @@ export class CuevaClient {
       const detail = await res.json().catch(() => ({}));
       throw this.mkErr(res.status, (detail as any).detail ?? res.statusText);
     }
+    if (res.status === 204) return undefined as T;   // no-content (e.g. account deletion)
     return res.json() as Promise<T>;
   }
 
@@ -197,6 +198,11 @@ export class CuevaClient {
   }
 
   /** HOME (returning user) — the saved profile + fingerprint. 404 if not onboarded. */
+  /** Permanently delete the user's account + all their data (App Store / Play requirement). */
+  deleteAccount(): Promise<void> {
+    return this.req(`/me`, { method: "DELETE" });
+  }
+
   me(): Promise<UserResponse> {
     return this.req(`/me`);
   }

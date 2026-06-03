@@ -29,6 +29,19 @@ npm-debug.log*
 # ---- Backups (kept outside the repo, but never commit them) ----
 cueva-bundle-backup-*.zip
 
+# ---- Capacitor / native build artifacts (the ios/ & android/ projects ARE committed) ----
+web/android/.gradle/
+web/android/build/
+web/android/app/build/
+web/android/capacitor-cordova-android-plugins/
+web/android/local.properties
+web/ios/App/Pods/
+web/ios/App/build/
+web/ios/App/output/
+web/ios/App/Podfile.lock
+web/.gradle/
+*.iml
+
 # ---- OS / editor cruft ----
 .DS_Store
 Thumbs.db

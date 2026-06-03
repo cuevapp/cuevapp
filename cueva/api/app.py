@@ -19,7 +19,7 @@ import hmac
 import logging
 import threading
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -151,6 +151,18 @@ def me(request: Request, claims: auth.Claims = Depends(current_subject)):
         if row is None:
             raise HTTPException(404, _NOT_ONBOARDED)
         return _user_response(c, row)
+
+
+@app.delete("/me", status_code=204)
+@limiter.limit(settings.rate_limit_write)
+def delete_me(request: Request, claims: auth.Claims = Depends(current_subject)):
+    """Delete the authenticated user's account and all their data (profile, feedback,
+    impressions). Idempotent. Required for App Store / Play Store account-deletion policy.
+    Note: this removes the Cueva-side data; deleting the identity at the auth provider
+    (Auth0) additionally requires the provider's Management API (see MOBILE.md)."""
+    with db.conn() as c:
+        db.delete_user(c, claims.subject)
+    return Response(status_code=204)
 
 
 @app.patch("/me/fingerprint", response_model=schemas.UserResponse)
