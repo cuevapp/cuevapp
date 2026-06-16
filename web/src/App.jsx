@@ -3,7 +3,7 @@ import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Responsi
 import {
   Clapperboard, Check, Sparkles, Ticket, MonitorPlay, ArrowRight, Heart, ThumbsDown, Eye, EyeOff,
   Home as HomeIcon, Compass, User, Moon, TrendingUp, TrendingDown, SlidersHorizontal, Loader2,
-  Mail, Lock, AlertCircle, LogOut, ShieldCheck, Cloud, Coffee, Info, ExternalLink,
+  Mail, Lock, AlertCircle, LogOut, ShieldCheck, Cloud, Coffee, Info, ExternalLink, Search,
 } from "lucide-react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Capacitor } from "@capacitor/core";
@@ -108,6 +108,7 @@ class CuevaClient {
     return res.json();
   }
   onboardingCatalog(limit = 28) { return this._req(`/catalog/onboarding?limit=${limit}`, {}, false); }
+  searchCatalog(q, limit = 24) { return this._req(`/catalog/search?q=${encodeURIComponent(q)}&limit=${limit}`, {}, false); }
   similarToFilm(id, k = 10) { return this._req(`/films/${id}/similar?k=${k}`, {}, false); }
   onboard(likedIds, region = "US") { return this._req(`/onboard`, { method: "POST", body: JSON.stringify({ liked_tmdb_ids: likedIds, region }) }); }
   me() { return this._req(`/me`); }
@@ -223,6 +224,10 @@ function installMockBackend() {
     // public
     if (path === "/catalog/onboarding" && method === "GET")
       return J(CATALOG.map((m) => ({ tmdb_id: m.id, title: m.t, year: m.y, dominant_axis: topAxesArr(m.fp, 1)[0].axis, fingerprint: m.fp })));
+    if (path === "/catalog/search" && method === "GET") {
+      const q = (u.searchParams.get("q") || "").toLowerCase();
+      return J(CATALOG.filter((m) => m.t.toLowerCase().includes(q)).map((m) => ({ tmdb_id: m.id, title: m.t, year: m.y, poster_path: null, dominant_axis: topAxesArr(m.fp, 1)[0].axis, fingerprint: m.fp })));
+    }
     if (/^\/films\/\d+\/similar$/.test(path) && method === "GET") {
       const id = +path.split("/")[2]; if (!CAT[id]) return J({ detail: "not found" }, 404);
       return J(rankServer(CAT[id].fp, { k: +u.searchParams.get("k") || 10, exclude: [id] }));
@@ -406,15 +411,26 @@ function Auth({ onSubmit, notice }) {
 function Onboarding({ client, onDone }) {
   const [step, setStep] = useState("welcome");
   const [catalog, setCatalog] = useState(null); const [picked, setPicked] = useState([]); const [busy, setBusy] = useState(false);
-  useEffect(() => { client.onboardingCatalog(28).then(setCatalog).catch(() => setCatalog([])); }, [client]);
-  // Preview the base fingerprint from the loaded catalog's own fingerprints, so this
-  // works whether the catalog comes from the in-browser mock or the real backend
-  // (which uses real TMDB ids, not the local CATALOG's ids).
-  const fpById = useMemo(() => Object.fromEntries((catalog || []).map((m) => [m.tmdb_id, m.fingerprint])), [catalog]);
+  const [query, setQuery] = useState(""); const [results, setResults] = useState(null); const [searching, setSearching] = useState(false);
+  // Remember the fingerprint of every film we've shown (curated grid + search results) so the
+  // live preview radar can average whatever the user picked, no matter where they found it.
+  const fpMap = useRef({});
+  const remember = (items) => { (items || []).forEach((m) => { fpMap.current[m.tmdb_id] = m.fingerprint; }); };
+  useEffect(() => { client.onboardingCatalog(28).then((items) => { setCatalog(items); remember(items); }).catch(() => setCatalog([])); }, [client]);
+  // Debounced title search over the catalog.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) { setResults(null); setSearching(false); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      client.searchCatalog(q, 24).then((items) => { remember(items); setResults(items); }).catch(() => setResults([])).finally(() => setSearching(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query, client]);
   const base = useMemo(() => {
-    const have = picked.map((id) => fpById[id]).filter(Boolean);
+    const have = picked.map((id) => fpMap.current[id]).filter(Boolean);
     return AXES.reduce((o, a) => ({ ...o, [a]: have.length ? Math.round(have.reduce((s, f) => s + f[a], 0) / have.length) : 5 }), {});
-  }, [picked, fpById]);
+  }, [picked]);
 
   if (step === "welcome") return (
     <div style={{ padding: "70px 30px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -426,23 +442,35 @@ function Onboarding({ client, onDone }) {
   );
   const toggle = (id) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   const go = async () => { setBusy(true); try { onDone(await client.onboard(picked)); } catch { setBusy(false); } };
+  const card = (m) => { const on = picked.includes(m.tmdb_id); return (
+    <div key={m.tmdb_id} onClick={() => toggle(m.tmdb_id)} style={{ cursor: "pointer" }}>
+      <div style={{ position: "relative", aspectRatio: "2/3", borderRadius: 12, overflow: "hidden", background: gradientFor(m.fingerprint), border: `2px solid ${on ? C.base : "transparent"}`, boxShadow: on ? "0 8px 22px rgba(245,166,35,.32)" : "0 4px 14px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: 9 }}>
+        {tmdbPoster(m.poster_path) && <img src={tmdbPoster(m.poster_path)} alt="" loading="lazy" onError={hidePoster} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(8,7,6,.82), transparent 58%)" }} />
+        {on && <div style={{ position: "absolute", top: 8, right: 8, width: 22, height: 22, borderRadius: "50%", background: C.base, display: "grid", placeItems: "center" }}><Check size={13} color="#1a1206" strokeWidth={3} /></div>}
+        <div style={{ position: "relative", fontFamily: "'Fraunces',serif", fontSize: 13, fontWeight: 600, lineHeight: 1.15 }}>{m.title}</div>
+      </div>
+    </div>); };
+  const grid = (films) => <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(104px,1fr))", gap: 11 }}>{films.map(card)}</div>;
+  const inSearch = query.trim().length > 0;
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ padding: "18px 20px 8px" }}><h2 style={{ fontFamily: "'Fraunces',serif", fontSize: 24, fontWeight: 600, margin: "4px 0 2px" }}>Pick films you love</h2><p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Choose at least {MIN_PICKS}.</p></div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}.cv-spin{animation:spin 1s linear infinite}.cv-field:focus{border-color:${C.base}!important}`}</style>
+      <div style={{ padding: "16px 20px 8px" }}>
+        <h2 style={{ fontFamily: "'Fraunces',serif", fontSize: 24, fontWeight: 600, margin: "4px 0 2px" }}>Pick films you love</h2>
+        <p style={{ color: C.muted, fontSize: 13, margin: "0 0 12px" }}>Search for your favorites, or pick from below — at least {MIN_PICKS}.</p>
+        <div style={{ position: "relative" }}>
+          <Search size={16} color={C.muted} style={{ position: "absolute", left: 13, top: 13, pointerEvents: "none" }} />
+          <input className="cv-field" style={{ ...FIELD, paddingRight: 34 }} placeholder="Search a movie you love…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          {query && <button onClick={() => setQuery("")} aria-label="Clear search" style={{ position: "absolute", right: 8, top: 8, width: 24, height: 24, borderRadius: "50%", border: "none", background: "transparent", color: C.muted, cursor: "pointer", fontSize: 17, lineHeight: 1 }}>×</button>}
+        </div>
+      </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 16px" }}>
-        {!catalog ? <Spinner label="Loading catalog…" /> : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(104px,1fr))", gap: 11 }}>
-            {catalog.map((m) => { const on = picked.includes(m.tmdb_id); return (
-              <div key={m.tmdb_id} onClick={() => toggle(m.tmdb_id)} style={{ cursor: "pointer" }}>
-                <div style={{ position: "relative", aspectRatio: "2/3", borderRadius: 12, overflow: "hidden", background: gradientFor(m.fingerprint), border: `2px solid ${on ? C.base : "transparent"}`, boxShadow: on ? "0 8px 22px rgba(245,166,35,.32)" : "0 4px 14px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", justifyContent: "flex-end", padding: 9 }}>
-                  {tmdbPoster(m.poster_path) && <img src={tmdbPoster(m.poster_path)} alt="" loading="lazy" onError={hidePoster} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
-                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(8,7,6,.82), transparent 58%)" }} />
-                  {on && <div style={{ position: "absolute", top: 8, right: 8, width: 22, height: 22, borderRadius: "50%", background: C.base, display: "grid", placeItems: "center" }}><Check size={13} color="#1a1206" strokeWidth={3} /></div>}
-                  <div style={{ position: "relative", fontFamily: "'Fraunces',serif", fontSize: 13, fontWeight: 600, lineHeight: 1.15 }}>{m.title}</div>
-                </div>
-              </div>); })}
-          </div>
-        )}
+        {inSearch
+          ? (results === null ? <Spinner label="Searching…" />
+            : results.length === 0 ? <div style={{ textAlign: "center", color: C.muted, fontSize: 13, lineHeight: 1.6, padding: "26px 12px" }}>No films matching “{query.trim()}” in our catalog yet.<br />Try another title, or pick from the grid.</div>
+            : grid(results))
+          : (!catalog ? <Spinner label="Loading catalog…" /> : grid(catalog))}
       </div>
       <div style={{ padding: "12px 20px", display: "flex", alignItems: "center", gap: 13, borderTop: `1px solid ${C.line}`, background: C.bg }}>
         <CompactRadar base={base} showEff={false} size={48} />

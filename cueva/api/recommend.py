@@ -88,6 +88,30 @@ def similar_to_film(c, tmdb_id: int, k: int = 10) -> list[dict] | None:
     ]
 
 
+def search_catalog(c, query: str, limit: int = 24) -> list[dict]:
+    """Title search over the scored catalog — powers the onboarding 'find a film you love'
+    search box. Prefix matches rank first, then shorter titles, then alphabetical."""
+    cols = ", ".join(AXES)
+    with c.cursor() as cur:
+        cur.execute(
+            f"""SELECT tmdb_id, title, year, poster_path, {cols}
+                FROM films
+                WHERE title ILIKE %s
+                ORDER BY (title ILIKE %s) DESC, length(title), title
+                LIMIT %s""",
+            (f"%{query}%", f"{query}%", limit),
+        )
+        rows = cur.fetchall()
+    out: list[dict] = []
+    for tmdb_id, title, year, poster_path, *vals in rows:
+        fp = dict(zip(AXES, vals))
+        out.append({
+            "tmdb_id": tmdb_id, "title": title, "year": year, "poster_path": poster_path,
+            "dominant_axis": max(AXES, key=lambda a: fp[a]), "fingerprint": fp,
+        })
+    return out
+
+
 def onboarding_catalog(c, limit: int = 28) -> list[dict]:
     """Films for the 'pick what you love' screen, balanced for genre COVERAGE
     rather than raw popularity: bucket by dominant axis, then round-robin so

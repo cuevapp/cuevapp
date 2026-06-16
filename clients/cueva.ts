@@ -164,6 +164,11 @@ export class CuevaClient {
     return this.req(`/catalog/onboarding?limit=${limit}`, {}, false);
   }
 
+  /** PICK screen — title search over the catalog ("find a film you love"). */
+  searchCatalog(q: string, limit = 24): Promise<CatalogItem[]> {
+    return this.req(`/catalog/search?q=${encodeURIComponent(q)}&limit=${limit}`, {}, false);
+  }
+
   /** HOME — "Because you loved <film>" (item-to-item similarity). */
   similarToFilm(tmdbId: number, k = 10): Promise<MovieMatch[]> {
     return this.req(`/films/${tmdbId}/similar?k=${k}`, {}, false);

@@ -121,6 +121,21 @@ def onboarding_catalog(request: Request, limit: int = Query(28, ge=6, le=100)):
     ]
 
 
+@app.get("/catalog/search", response_model=list[schemas.CatalogItem])
+@limiter.limit(settings.rate_limit_public)
+def catalog_search(request: Request, q: str = Query(..., min_length=1, max_length=80), limit: int = Query(24, ge=1, le=50)):
+    with db.conn() as c:
+        items = recommend.search_catalog(c, q, limit)
+    return [
+        schemas.CatalogItem(
+            tmdb_id=i["tmdb_id"], title=i["title"], year=i["year"],
+            poster_path=i.get("poster_path"), dominant_axis=i["dominant_axis"],
+            fingerprint=Fingerprint(**i["fingerprint"]),
+        )
+        for i in items
+    ]
+
+
 @app.get("/films/{tmdb_id}/similar", response_model=list[schemas.MovieMatch])
 @limiter.limit(settings.rate_limit_public)
 def similar_films(request: Request, tmdb_id: int, k: int = Query(10, ge=1, le=50)):
