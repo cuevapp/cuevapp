@@ -838,12 +838,22 @@ function MockAuthShell() {
  * a safety net. No password ever touches this app — Auth0 hosts login. */
 function Auth0AuthShell() {
   const { isLoading, isAuthenticated, user, loginWithRedirect, logout, getAccessTokenSilently } = useAuth0();
-  const client = useMemo(() => new CuevaClient(API_URL, {
-    getToken: () => getAccessTokenSilently().catch(() => null),
-    refreshToken: () => getAccessTokenSilently({ cacheMode: "off" }).catch(() => null),
-    onSessionExpired: () => loginWithRedirect(),
-    refreshSkewSeconds: 30,
-  }), [getAccessTokenSilently, loginWithRedirect]);
+  const client = useMemo(() => {
+    // When the Auth0 session has idle/absolute-expired, getAccessTokenSilently throws one of
+    // these — bounce to login instead of letting API calls fail silently. Transient/network
+    // errors aren't in the list, so they fall through to null and the client retries (no loop).
+    const reauthErrors = ["login_required", "missing_refresh_token", "invalid_grant", "consent_required"];
+    const token = async (opts) => {
+      try { return await getAccessTokenSilently(opts); }
+      catch (e) { if (reauthErrors.includes(e?.error)) loginWithRedirect(); return null; }
+    };
+    return new CuevaClient(API_URL, {
+      getToken: () => token(),
+      refreshToken: () => token({ cacheMode: "off" }),
+      onSessionExpired: () => loginWithRedirect(),
+      refreshSkewSeconds: 30,
+    });
+  }, [getAccessTokenSilently, loginWithRedirect]);
 
   const auth = {
     kind: "auth0", ready: !isLoading, isAuthenticated, email: user?.email, notice: null,

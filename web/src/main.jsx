@@ -10,11 +10,10 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// When Auth0 env vars are present, wrap the app in the provider; otherwise the app
-// uses the mock IdP. useRefreshTokens + localstorage cache give silent refresh and
-// session persistence across reloads.
-// On native (Capacitor) the app uses CapacitorAuthShell, which manages its own Auth0 client —
-// so we skip the web @auth0/auth0-react provider there. Web is unchanged.
+// Tokens persist in localStorage so users stay signed in across reloads/restarts. Session
+// expiry is handled by Auth0's *idle/absolute timeouts* (Auth0 Dashboard → Settings → Sessions
+// + the app's Refresh Token Inactivity Lifetime), not by clearing storage on close — see MOBILE/
+// auth notes. On native (Capacitor) the app uses CapacitorAuthShell, so we skip this provider.
 const tree = (USING_AUTH0 && !IS_NATIVE) ? (
   <Auth0Provider
     domain={AUTH0.domain}
