@@ -735,14 +735,25 @@ function AppCore({ client, auth }) {
   const refreshProfile = useCallback(() => { client.me().then(setProfile).catch(() => {}); }, [client]);
   const bootstrap = useCallback(async () => {
     setPhase("boot");
-    try { const me = await client.meOrNull(); setProfile(me); setPhase(me ? "app" : "onboarding"); } // 404 -> onboard
-    catch { setPhase("boot"); }
+    // Retry transient failures (Render cold start, a token-refresh race) with backoff so a
+    // one-off blip doesn't strand the user on the spinner. 404 -> onboarding (not an error).
+    const delays = [400, 1200, 2500];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const me = await client.meOrNull();
+        setProfile(me); setPhase(me ? "app" : "onboarding");
+        return;
+      } catch {
+        if (attempt >= delays.length) { setPhase("error"); return; }
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      }
+    }
   }, [client]);
 
   // Bootstrap once the provider says we're authenticated; reset when we sign out.
   useEffect(() => { if (auth.ready && auth.isAuthenticated) { bootstrap(); } else { setProfile(null); } }, [auth.ready, auth.isAuthenticated, bootstrap]);
 
-  const onboarded = () => { setTab("home"); setPhase("boot"); client.me().then((p) => { setProfile(p); setPhase("app"); }).catch(() => setPhase("app")); };
+  const onboarded = () => { setTab("home"); bootstrap(); };   // reuse the resilient fetch
 
   if (!auth.ready) return <div style={SHELL}><style>{FONTS}</style><div style={{ flex: 1, display: "grid", placeItems: "center" }}><Spinner label="Loading…" /></div></div>;
   if (!auth.isAuthenticated) return (
@@ -757,7 +768,15 @@ function AppCore({ client, auth }) {
       <div style={{ position: "absolute", top: 8, right: 12, zIndex: 5, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C.muted, background: "rgba(12,10,9,.6)", borderRadius: 999, padding: "3px 8px" }}>
         <Cloud size={12} color={C.learned} /> {auth.kind === "auth0" ? "Auth0 + API" : "live API"}
       </div>
-      {phase === "boot" ? <div style={{ flex: 1, display: "grid", placeItems: "center" }}><Spinner label="Loading your fingerprint…" /></div>
+      {phase === "error" ? (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "30px 28px", textAlign: "center" }}>
+          <AlertCircle size={30} color="#e8888a" />
+          <div style={{ fontFamily: "'Fraunces',serif", fontSize: 21, fontWeight: 600, marginTop: 14 }}>Couldn't reach Cueva</div>
+          <p style={{ color: C.muted, fontSize: 13.5, lineHeight: 1.6, maxWidth: 300, marginTop: 8 }}>We had trouble loading your profile — usually just a brief hiccup. Give it another go.</p>
+          <button onClick={bootstrap} style={{ marginTop: 20, display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14.5, fontWeight: 700, padding: "12px 26px", borderRadius: 12, border: "none", cursor: "pointer", color: "#1a1206", background: "linear-gradient(135deg,#f5a623,#d4791b)" }}>Retry</button>
+          <button onClick={auth.logout} style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: C.muted, background: "transparent", border: "none", cursor: "pointer" }}>Log out</button>
+        </div>
+      ) : phase === "boot" ? <div style={{ flex: 1, display: "grid", placeItems: "center" }}><Spinner label="Loading your fingerprint…" /></div>
         : phase === "onboarding" ? <div style={{ flex: 1, overflow: "hidden" }}><Onboarding client={client} onDone={onboarded} /></div>
           : (
             <>
