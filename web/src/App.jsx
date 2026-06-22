@@ -708,7 +708,9 @@ function ProfileTab({ client, profile, onProfileChange, email, onLogout, session
 /* ===================== shell ===================== */
 const TABS = [{ id: "home", label: "Home", icon: HomeIcon }, { id: "discover", label: "Discover", icon: Compass }, { id: "profile", label: "Profile", icon: User }];
 const SESSION_KEY = "cueva_session";
-const SHELL = { background: C.bg, color: C.text, fontFamily: "'Hanken Grotesk',sans-serif", borderRadius: 20, overflow: "hidden", height: 700, display: "flex", flexDirection: "column", maxWidth: 440, margin: "0 auto", border: `1px solid ${C.line}`, position: "relative" };
+// Layout (height / max-width / frame) lives in the `.cueva-shell` CSS class (see main.jsx):
+// full-bleed 100dvh on a device, a centered framed column on desktop. Keep only paint + flex here.
+const SHELL = { background: C.bg, color: C.text, fontFamily: "'Hanken Grotesk',sans-serif", overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" };
 
 // Hosted-login screen for providers that own their own login UI (Auth0, Clerk…).
 function RedirectLogin({ onLogin, notice }) {
@@ -755,15 +757,15 @@ function AppCore({ client, auth }) {
 
   const onboarded = () => { setTab("home"); bootstrap(); };   // reuse the resilient fetch
 
-  if (!auth.ready) return <div style={SHELL}><style>{FONTS}</style><div style={{ flex: 1, display: "grid", placeItems: "center" }}><Spinner label="Loading…" /></div></div>;
+  if (!auth.ready) return <div className="cueva-shell" style={SHELL}><style>{FONTS}</style><div style={{ flex: 1, display: "grid", placeItems: "center" }}><Spinner label="Loading…" /></div></div>;
   if (!auth.isAuthenticated) return (
-    <div style={SHELL}><style>{FONTS}</style>
+    <div className="cueva-shell" style={SHELL}><style>{FONTS}</style>
       {auth.kind === "auth0" ? <RedirectLogin onLogin={auth.login} notice={auth.notice} /> : <Auth onSubmit={auth.login} notice={auth.notice} />}
     </div>
   );
 
   return (
-    <div style={SHELL}>
+    <div className="cueva-shell" style={SHELL}>
       <style>{FONTS}</style>
       <div style={{ position: "absolute", top: 8, right: 12, zIndex: 5, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C.muted, background: "rgba(12,10,9,.6)", borderRadius: 999, padding: "3px 8px" }}>
         <Cloud size={12} color={C.learned} /> {auth.kind === "auth0" ? "Auth0 + API" : "live API"}
