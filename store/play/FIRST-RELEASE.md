@@ -5,6 +5,14 @@ After this, `scripts/play_publish.py` automates all future releases.
 
 Target: a live **Internal testing** build you can install on your phone.
 
+> **Package name is `com.cuevapp.app` and is permanent.** A Play Console app locks to the
+> package of its first uploaded bundle and it can never be changed. If an app entry shows a
+> different package (e.g. a placeholder `com.cueva.myapp`) and rejects the upload with
+> *"needs to have the package name …"*, that entry is unusable — **Create a new app** and
+> upload `app-release.aab` into it (the first upload locks it to `com.cuevapp.app`). Don't
+> rename the project to match a placeholder; Auth0's native callback + the deep‑link scheme
+> are all built on `com.cuevapp.app`.
+
 ---
 
 ## 0. Assets you'll need (all in this repo)
