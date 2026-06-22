@@ -1,0 +1,4 @@
+# Deps for scripts/play_publish.py (Google Play Android Publisher API uploader).
+# Install into the venv:  .venv\Scripts\python.exe -m pip install -r scripts/requirements-publish.txt
+google-api-python-client>=2.0
+google-auth>=2.0

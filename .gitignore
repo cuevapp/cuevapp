@@ -47,6 +47,11 @@ web/.gradle/
 *.keystore
 web/android/keystore.properties
 
+# ---- Google Play service-account key (NEVER commit) ----
+secrets/
+*service-account*.json
+play-service-account*.json
+
 # ---- OS / editor cruft ----
 .DS_Store
 Thumbs.db
