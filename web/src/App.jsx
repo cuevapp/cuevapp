@@ -767,9 +767,11 @@ function AppCore({ client, auth }) {
   return (
     <div className="cueva-shell" style={SHELL}>
       <style>{FONTS}</style>
-      <div style={{ position: "absolute", top: 8, right: 12, zIndex: 5, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C.muted, background: "rgba(12,10,9,.6)", borderRadius: 999, padding: "3px 8px" }}>
-        <Cloud size={12} color={C.learned} /> {auth.kind === "auth0" ? "Auth0 + API" : "live API"}
-      </div>
+      {import.meta.env.DEV && (
+        <div style={{ position: "absolute", top: 8, right: 12, zIndex: 5, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C.muted, background: "rgba(12,10,9,.6)", borderRadius: 999, padding: "3px 8px" }}>
+          <Cloud size={12} color={C.learned} /> {auth.kind === "auth0" ? "Auth0 + API" : "live API"}
+        </div>
+      )}
       {phase === "error" ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "30px 28px", textAlign: "center" }}>
           <AlertCircle size={30} color="#e8888a" />
