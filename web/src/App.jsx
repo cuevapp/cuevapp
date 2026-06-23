@@ -549,6 +549,12 @@ const ACTIONS = [
   { sig: "hide", label: "Hide", icon: EyeOff, color: C.muted },
 ];
 const DISCOVER_LENSES = ["foryou", ...AXES];   // "For you" + one lens per genre axis
+// A "probe" fingerprint that points clearly at ONE genre: that axis maxed, the other axes kept
+// only as a faint echo (capped low). Cosine similarity is direction-based, so WITHOUT this cap a
+// very high axis (e.g. lots of horror loves) dominates EVERY lens — the bug where Action/Comedy all
+// returned horror. Capping the non-target axes keeps each lens about its own genre, with a light
+// personal lean only for tie-breaks.
+const genreProbe = (base, axis) => { const p = {}; for (const a of AXES) p[a] = a === axis ? 10 : Math.min(3, base[a] ?? 0); return p; };
 
 function DiscoverTab({ client, profile, onProfileChange }) {
   const [feed, setFeed] = useState(null); const [fpState, setFpState] = useState(profile.fingerprint);
@@ -565,10 +571,10 @@ function DiscoverTab({ client, profile, onProfileChange }) {
   // your real taste, then rotates through your least-explored genres so the feed stays varied.
   const probeFp = useCallback((idx) => {
     const base = fpRef.current;
-    if (lens !== "foryou") return { ...base, [lens]: 10 };
-    if (idx === 0) return base;
-    const weakest = [...AXES].sort((a, b) => base[a] - base[b]);
-    return { ...base, [weakest[(idx - 1) % AXES.length]]: 10 };
+    if (lens !== "foryou") return genreProbe(base, lens);          // genre lens: that genre dominates
+    if (idx === 0) return base;                                    // "For you": your real taste first
+    const weakest = [...AXES].sort((a, b) => base[a] - base[b]);   // then explore least-seen genres
+    return genreProbe(base, weakest[(idx - 1) % AXES.length]);
   }, [lens]);
   const loadMore = useCallback(async () => {
     if (loadingRef.current || exhaustedRef.current) return;
