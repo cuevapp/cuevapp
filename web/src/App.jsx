@@ -548,33 +548,48 @@ const ACTIONS = [
   { sig: "seen", label: "Seen", icon: Eye, color: C.muted },
   { sig: "hide", label: "Hide", icon: EyeOff, color: C.muted },
 ];
+const DISCOVER_LENSES = ["foryou", ...AXES];   // "For you" + one lens per genre axis
+
 function DiscoverTab({ client, profile, onProfileChange }) {
   const [feed, setFeed] = useState(null); const [fpState, setFpState] = useState(profile.fingerprint);
   const [count, setCount] = useState(0); const [busyId, setBusyId] = useState(null);
+  const [lens, setLens] = useState("foryou");
   const [loadingMore, setLoadingMore] = useState(false); const [exhausted, setExhausted] = useState(false);
-  const seen = useRef(new Set()); const offset = useRef(0); const loadingRef = useRef(false); const exhaustedRef = useRef(false);
+  const seen = useRef(new Set(profile.liked_tmdb_ids || [])); const fpRef = useRef(profile.fingerprint);
+  const loadIdx = useRef(0); const emptyStreak = useRef(0); const loadingRef = useRef(false); const exhaustedRef = useRef(false);
   const BATCH = 24;
-  // Pull a page of films to rate (the API already excludes anything you've liked or reacted
-  // to), dedupe against what's on screen, and append — an infinite "sharpen your taste" feed.
+  useEffect(() => { fpRef.current = fpState; }, [fpState]);
+  // Discover should *broaden* taste, not just confirm it. We rank against a "probe" fingerprint —
+  // a chosen genre dialed to max while keeping your other axes — so e.g. horror films surface even
+  // if you onboarded with none ("strong <genre> films that still fit you"). "For you" leads with
+  // your real taste, then rotates through your least-explored genres so the feed stays varied.
+  const probeFp = useCallback((idx) => {
+    const base = fpRef.current;
+    if (lens !== "foryou") return { ...base, [lens]: 10 };
+    if (idx === 0) return base;
+    const weakest = [...AXES].sort((a, b) => base[a] - base[b]);
+    return { ...base, [weakest[(idx - 1) % AXES.length]]: 10 };
+  }, [lens]);
   const loadMore = useCallback(async () => {
     if (loadingRef.current || exhaustedRef.current) return;
     loadingRef.current = true; setLoadingMore(true);
     try {
-      const r = await client.recommendations({ k: BATCH, only_available: false, offset: offset.current });
-      offset.current += BATCH;
+      const r = await client.recommend({ fingerprint: probeFp(loadIdx.current), k: BATCH, exclude_tmdb_ids: [...seen.current], only_available: false });
+      loadIdx.current += 1;
       const results = r.results || [];
       const fresh = results.filter((m) => !seen.current.has(m.tmdb_id));
       fresh.forEach((m) => seen.current.add(m.tmdb_id));
-      if (r.fingerprint) setFpState(r.fingerprint);
       setFeed((f) => [...(f || []), ...fresh]);
-      if (results.length < BATCH) { exhaustedRef.current = true; setExhausted(true); }
+      emptyStreak.current = fresh.length ? 0 : emptyStreak.current + 1;
+      if (emptyStreak.current >= AXES.length + 1) { exhaustedRef.current = true; setExhausted(true); }
     } catch { setFeed((f) => f || []); }
     finally { loadingRef.current = false; setLoadingMore(false); }
-  }, [client]);
+  }, [client, probeFp]);
+  // (re)load when the lens changes; keep `seen` so films never repeat across lenses.
   useEffect(() => {
-    seen.current = new Set(); offset.current = 0; exhaustedRef.current = false;
+    loadIdx.current = 0; emptyStreak.current = 0; exhaustedRef.current = false;
     setExhausted(false); setFeed(null); loadMore();
-  }, [loadMore]);
+  }, [lens, loadMore]);
   const react = async (id, sig) => {
     setBusyId(id);
     try {
@@ -600,8 +615,13 @@ function DiscoverTab({ client, profile, onProfileChange }) {
           </div>
         </div>
       </div>
-      <div style={{ padding: "8px 16px 20px" }}>
-        <div style={{ fontSize: 12.5, color: C.muted, padding: "12px 4px 6px" }}>Ranked by your current fingerprint</div>
+      <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "12px 16px 4px" }}>
+        {DISCOVER_LENSES.map((l) => { const on = lens === l; const lbl = l === "foryou" ? "For you" : LABEL[l]; const col = l === "foryou" ? C.base : GENRE_COLOR[l]; return (
+          <button key={l} onClick={() => setLens(l)} style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 700, padding: "7px 14px", borderRadius: 999, cursor: "pointer", whiteSpace: "nowrap", background: on ? `${col}22` : C.panel, color: on ? col : C.muted, border: `1px solid ${on ? `${col}77` : C.line}` }}>{lbl}</button>
+        ); })}
+      </div>
+      <div style={{ padding: "4px 16px 20px" }}>
+        <div style={{ fontSize: 12.5, color: C.muted, padding: "10px 4px 6px" }}>{lens === "foryou" ? "Ranked by your taste — with new genres mixed in" : `Strong ${LABEL[lens]} films that may still fit you — react to grow your fingerprint`}</div>
         {!feed ? <Spinner label="Loading…" /> : (
           <>
             {feed.map((m) => (
@@ -621,7 +641,7 @@ function DiscoverTab({ client, profile, onProfileChange }) {
             ))}
             <div style={{ paddingTop: 16, textAlign: "center" }}>
               {loadingMore ? <Spinner label="Loading more…" />
-                : feed.length === 0 ? <div style={{ color: C.muted, fontSize: 13, padding: "16px 0" }}>You've reacted to everything on hand.</div>
+                : feed.length === 0 ? <div style={{ color: C.muted, fontSize: 13, padding: "16px 0" }}>{lens === "foryou" ? "You've reacted to everything on hand." : "Nothing new here right now — try another genre above."}</div>
                 : exhausted ? <div style={{ color: C.muted, fontSize: 12.5 }}>That's everything that matches your taste for now.</div>
                 : <button onClick={loadMore} style={{ fontSize: 13, fontWeight: 700, padding: "11px 24px", borderRadius: 11, border: `1px solid ${C.line}`, background: C.panel, color: C.text, cursor: "pointer" }}>Load more films</button>}
             </div>
