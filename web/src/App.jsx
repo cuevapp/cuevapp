@@ -551,12 +551,39 @@ const ACTIONS = [
 function DiscoverTab({ client, profile, onProfileChange }) {
   const [feed, setFeed] = useState(null); const [fpState, setFpState] = useState(profile.fingerprint);
   const [count, setCount] = useState(0); const [busyId, setBusyId] = useState(null);
-  const load = useCallback(() => { setFeed(null); client.recommendations({ k: 5 }).then((r) => { setFeed(r.results); setFpState(r.fingerprint); }).catch(() => setFeed([])); }, [client]);
-  useEffect(() => { load(); }, [load]);
+  const [loadingMore, setLoadingMore] = useState(false); const [exhausted, setExhausted] = useState(false);
+  const seen = useRef(new Set()); const offset = useRef(0); const loadingRef = useRef(false); const exhaustedRef = useRef(false);
+  const BATCH = 24;
+  // Pull a page of films to rate (the API already excludes anything you've liked or reacted
+  // to), dedupe against what's on screen, and append — an infinite "sharpen your taste" feed.
+  const loadMore = useCallback(async () => {
+    if (loadingRef.current || exhaustedRef.current) return;
+    loadingRef.current = true; setLoadingMore(true);
+    try {
+      const r = await client.recommendations({ k: BATCH, only_available: false, offset: offset.current });
+      offset.current += BATCH;
+      const results = r.results || [];
+      const fresh = results.filter((m) => !seen.current.has(m.tmdb_id));
+      fresh.forEach((m) => seen.current.add(m.tmdb_id));
+      if (r.fingerprint) setFpState(r.fingerprint);
+      setFeed((f) => [...(f || []), ...fresh]);
+      if (results.length < BATCH) { exhaustedRef.current = true; setExhausted(true); }
+    } catch { setFeed((f) => f || []); }
+    finally { loadingRef.current = false; setLoadingMore(false); }
+  }, [client]);
+  useEffect(() => {
+    seen.current = new Set(); offset.current = 0; exhaustedRef.current = false;
+    setExhausted(false); setFeed(null); loadMore();
+  }, [loadMore]);
   const react = async (id, sig) => {
     setBusyId(id);
-    try { const r = await client.sendFeedback(id, sig); setFpState(r.fingerprint); setCount(r.feedback_count); onProfileChange?.(); load(); }
-    catch { setBusyId(null); }
+    try {
+      const r = await client.sendFeedback(id, sig); setFpState(r.fingerprint); setCount(r.feedback_count); onProfileChange?.();
+      let remaining = 0;
+      setFeed((f) => { const next = (f || []).filter((m) => m.tmdb_id !== id); remaining = next.length; return next; });
+      setBusyId(null);
+      if (remaining <= 5) loadMore();   // keep the queue topped up so you can rate continuously
+    } catch { setBusyId(null); }
   };
   let shift = { axis: null, delta: 0 };
   for (const a of AXES) { const d = fpState[a] - profile.base_fingerprint[a]; if (Math.abs(d) > Math.abs(shift.delta)) shift = { axis: a, delta: d }; }
@@ -575,7 +602,9 @@ function DiscoverTab({ client, profile, onProfileChange }) {
       </div>
       <div style={{ padding: "8px 16px 20px" }}>
         <div style={{ fontSize: 12.5, color: C.muted, padding: "12px 4px 6px" }}>Ranked by your current fingerprint</div>
-        {!feed ? <Spinner label="Loading…" /> : feed.length === 0 ? <div style={{ textAlign: "center", color: C.muted, fontSize: 13, padding: "30px 0" }}>You've reacted to everything on hand.</div> : feed.map((m) => (
+        {!feed ? <Spinner label="Loading…" /> : (
+          <>
+            {feed.map((m) => (
           <div key={m.tmdb_id} style={{ display: "flex", gap: 13, alignItems: "center", padding: "11px 4px", borderBottom: `1px solid ${C.line}`, opacity: busyId === m.tmdb_id ? 0.4 : 1 }}>
             <Poster f={CAT[m.tmdb_id]?.fp || {}} poster={m.poster_path} size="w185" w={50} h={75} />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -589,7 +618,15 @@ function DiscoverTab({ client, profile, onProfileChange }) {
               </div>
             </div>
           </div>
-        ))}
+            ))}
+            <div style={{ paddingTop: 16, textAlign: "center" }}>
+              {loadingMore ? <Spinner label="Loading more…" />
+                : feed.length === 0 ? <div style={{ color: C.muted, fontSize: 13, padding: "16px 0" }}>You've reacted to everything on hand.</div>
+                : exhausted ? <div style={{ color: C.muted, fontSize: 12.5 }}>That's everything that matches your taste for now.</div>
+                : <button onClick={loadMore} style={{ fontSize: 13, fontWeight: 700, padding: "11px 24px", borderRadius: 11, border: `1px solid ${C.line}`, background: C.panel, color: C.text, cursor: "pointer" }}>Load more films</button>}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
