@@ -3,9 +3,10 @@
 # ONE MINUTE BEFORE the catalog refresh, so the 03:00 refresh hits a warm instance
 # instead of a cold-starting one (which can return a transient 5xx → "HTTP error").
 #
-# Fires Tue & Thu at 02:59 America/Los_Angeles and sends a plain GET to the API root.
-# No token needed — it's just a wake-up ping (the root returns 404, which still wakes
-# the service; cron-job.org treats 404 as a completed request, not a failure).
+# Fires Tue & Thu at 02:59 America/Los_Angeles and sends a plain GET to /openapi.json.
+# No token needed — it's just a wake-up ping. (Use /openapi.json, a 200, NOT the root "/"
+# which returns 404 — cron-job.org flags any 4xx as a failure, so the root would always
+# show "failed" even though it successfully woke the service.)
 #
 # Prereqs (env vars):
 #   CRONJOB_API_KEY  - cron-job.org API key (console.cron-job.org -> Settings -> API)
@@ -14,7 +15,7 @@
 # Usage:
 #   CRONJOB_API_KEY=... API_URL=https://api.cuevapp.com ./scripts/create_warmup_cronjob.sh
 #
-# (Prefer the dashboard? Create a job: GET <API_URL>/, schedule 02:59 PT on Tue & Thu.)
+# (Prefer the dashboard? Create a job: GET <API_URL>/openapi.json, schedule 02:59 PT on Tue & Thu.)
 set -euo pipefail
 : "${CRONJOB_API_KEY:?set CRONJOB_API_KEY}"
 : "${API_URL:?set API_URL (e.g. https://api.cuevapp.com)}"
@@ -27,7 +28,7 @@ curl -fsS -X PUT "https://api.cron-job.org/jobs" \
 {
   "job": {
     "title": "Cueva warm-up (Tue/Thu 2:59am PT)",
-    "url": "${API_URL%/}/",
+    "url": "${API_URL%/}/openapi.json",
     "enabled": true,
     "saveResponses": true,
     "requestMethod": 0,
